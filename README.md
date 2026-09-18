@@ -152,9 +152,7 @@ All functions are fully documented with JSDoc (`index.js` / `index.d.ts`).
 ### Example: enrollment + 1:1 verification
 
 ```js
-const T = uareu.C.FMD_FORMAT.ISO_19794_2_2005;
-
-// enroll (two finger placements)
+// 1. Enroll (multiple finger placements until template is complete)
 uareu.startEnrollment(uareu.C.FMD_FORMAT.DP_REG);
 let ready = false;
 while (!ready) {
@@ -166,12 +164,20 @@ while (!ready) {
   if (!s.success) throw new Error(s.reason);
   ready = uareu.addToEnrollment(s.fmd, uareu.C.FMD_FORMAT.DP_PRE_REG);
 }
-const template = uareu.createEnrollmentFmd();   // Buffer → store in your DB
+const template = uareu.createEnrollmentFmd();   // Buffer (DP_REG) → store in your DB
 uareu.finishEnrollment();
 
-// verify
-const v = await uareu.scanOnce({ extract: true });
-const { falseMatchRate } = uareu.compare(v.fmd, T, template, T);
+// 2. Verify
+const v = await uareu.scanOnce({
+  extract: true,
+  fmdType: uareu.C.FMD_FORMAT.DP_VER,
+});
+const { score, falseMatchRate } = uareu.compare(
+  v.fmd,
+  uareu.C.FMD_FORMAT.DP_VER,
+  template,
+  uareu.C.FMD_FORMAT.DP_REG
+);
 const matched = falseMatchRate < 1 / 100000; // one-in-100,000 false-match rate
 ```
 
@@ -240,6 +246,7 @@ scripts/copy-dlls.js  copies SDK DLLs into build/Release
 test/smoke.js       sync API test
 test/async.js       scanOnce + Scanner events test
 example/index.js    scanOnce usage example
+example/enroll-and-verify.js  enrollment + 1:1 verification example
 ```
 
 Run tests: `npm test` (passes without hardware; some paths need a physical
