@@ -1,0 +1,52 @@
+{
+  "name": "uareu-napi",
+  "version": "0.2.0",
+  "description": "Node.js / Electron bridge for the DigitalPersona (HID) U.are.U fingerprint SDK: capture, feature extraction, 1:1/1:N matching and enrollment. Promise + event-driven APIs, N-API v8 (Node 16-26 & Electron 17+).",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "scripts/copy-dlls.js",
+    "src/addon.cpp",
+    "binding.gyp",
+    "build/Release/*.node",
+    "build/Release/*.dll"
+  ],
+  "scripts": {
+    "build": "node scripts/build16.js && node scripts/copy-dlls.js",
+    "build:node26": "node-gyp rebuild --release --target=21.7.3 && node scripts/copy-dlls.js",
+    "copy:dlls": "node scripts/copy-dlls.js",
+    "test": "node test/smoke.js && node test/async.js"
+  },
+  "keywords": [
+    "fingerprint",
+    "uareu",
+    "digitalpersona",
+    "crossmatch",
+    "hid",
+    "dpfpdd",
+    "dpfj",
+    "biometrics",
+    "napi",
+    "electron"
+  ],
+  "dependencies": {
+    "node-addon-api": "^8.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.1",
+    "node-gyp": "^10.2.0"
+  },
+  "gypfile": false,
+  "license": "MIT"
+}
