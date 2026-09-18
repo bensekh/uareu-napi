@@ -32,7 +32,8 @@
     "example:image": "node example/capture-image.js",
     "example:identify": "node example/identify-1-to-n.js",
     "example:kiosk": "node example/kiosk-scanner.js",
-    "example:select": "node example/select-device.js"
+    "example:select": "node example/select-device.js",
+    "example:led": "node example/led-feedback.js"
   },
   "keywords": [
     "fingerprint",

@@ -282,6 +282,7 @@ example/capture-image.js      capture + BMP file and Data URL preview example
 example/identify-1-to-n.js    1:N biometric identification example
 example/kiosk-scanner.js      continuous event-driven kiosk scanner example
 example/select-device.js      multi-device selection and targeting example
+example/led-feedback.js       hardware LED indicator and feedback control example
 example/electron/             Electron IPC bridge & preview UI boilerplate
 ```
 
