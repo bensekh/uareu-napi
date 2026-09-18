@@ -28,7 +28,8 @@
     "copy:dlls": "node scripts/copy-dlls.js",
     "test": "node test/smoke.js && node test/async.js",
     "example": "node example/index.js",
-    "example:enroll": "node example/enroll-and-verify.js"
+    "example:enroll": "node example/enroll-and-verify.js",
+    "example:image": "node example/capture-image.js"
   },
   "keywords": [
     "fingerprint",

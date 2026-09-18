@@ -147,6 +147,8 @@ const C = native.C;
  * @property {boolean} [extract=false]  Also extract the minutiae template.
  * @property {number}  [fmdType=C.FMD_FORMAT.ISO_19794_2_2005] Template format
  *                                       used when `extract` is true.
+ * @property {boolean} [bmp=false]      Convert raw image to BMP Buffer (`bmp`)
+ *                                       and Data URL (`bmpDataUrl`).
  * @property {function(number,string):void} [onQuality] Called for every failed
  *                                       attempt with (qualityCode, message) —
  *                                       use to drive "please press your
@@ -172,6 +174,8 @@ const C = native.C;
  * @property {number}  [score]
  * @property {Buffer}  [image]  Raw pixels (on success).
  * @property {Buffer}  [fmd]    Minutiae template (on success, `extract` only).
+ * @property {Buffer}  [bmp]    BMP image Buffer (on success, `bmp` only).
+ * @property {string}  [bmpDataUrl] BMP Base64 data URL (on success, `bmp` only).
  */
 
 /**
@@ -537,6 +541,110 @@ function qualityText(quality) {
 }
 
 // ---------------------------------------------------------------------------
+// Image conversion: BMP
+// ---------------------------------------------------------------------------
+
+/**
+ * Converts a raw 8-bit grayscale pixel buffer (as returned by U.are.U capture)
+ * into a standard Windows BMP image Buffer with a 256-color grayscale palette.
+ *
+ * Fully synchronous and dependency-free. The resulting Buffer can be saved
+ * directly to disk (`.bmp`) or converted to a data URL for `<img src="...">`.
+ *
+ * @param {Buffer} rawImage Raw uncompressed 8-bit grayscale pixel array.
+ * @param {number} width Image width in pixels.
+ * @param {number} height Image height in pixels.
+ * @param {number} [dpi=700] Resolution metadata in DPI.
+ * @returns {Buffer} Valid BMP image file buffer.
+ * @example
+ * const bmp = uareu.toBmp(scan.image, scan.width, scan.height, scan.dpi);
+ * fs.writeFileSync("fingerprint.bmp", bmp);
+ */
+function toBmp(rawImage, width, height, dpi = 700) {
+  if (!Buffer.isBuffer(rawImage)) {
+    throw new TypeError("toBmp: rawImage must be a Buffer");
+  }
+  if (!Number.isInteger(width) || width <= 0) {
+    throw new TypeError("toBmp: width must be a positive integer");
+  }
+  if (!Number.isInteger(height) || height <= 0) {
+    throw new TypeError("toBmp: height must be a positive integer");
+  }
+
+  const rowStride = (width + 3) & ~3;
+  const imageSize = rowStride * height;
+  const headerSize = 14 + 40 + 1024; // File header + DIB header + 256-color palette
+  const fileSize = headerSize + imageSize;
+
+  const buf = Buffer.alloc(fileSize);
+
+  // BITMAPFILEHEADER (14 bytes)
+  buf.write("BM", 0, 2, "ascii");
+  buf.writeUInt32LE(fileSize, 2);
+  buf.writeUInt16LE(0, 6);
+  buf.writeUInt16LE(0, 8);
+  buf.writeUInt32LE(headerSize, 10);
+
+  // BITMAPINFOHEADER (40 bytes)
+  buf.writeUInt32LE(40, 14);
+  buf.writeInt32LE(width, 18);
+  buf.writeInt32LE(height, 22); // Positive height = bottom-up DIB
+  buf.writeUInt16LE(1, 26);
+  buf.writeUInt16LE(8, 28);
+  buf.writeUInt32LE(0, 30); // BI_RGB (uncompressed)
+  buf.writeUInt32LE(imageSize, 34);
+  const ppm = Math.round((dpi || 700) * 39.3701);
+  buf.writeInt32LE(ppm, 38);
+  buf.writeInt32LE(ppm, 42);
+  buf.writeUInt32LE(256, 46);
+  buf.writeUInt32LE(0, 50);
+
+  // 256-color grayscale palette (1024 bytes)
+  let p = 54;
+  for (let i = 0; i < 256; i++) {
+    buf[p++] = i;
+    buf[p++] = i;
+    buf[p++] = i;
+    buf[p++] = 0;
+  }
+
+  // Pixel data: bottom-to-top row order
+  let dest = headerSize;
+  const padding = rowStride - width;
+  for (let y = height - 1; y >= 0; y--) {
+    const src = y * width;
+    rawImage.copy(buf, dest, src, src + width);
+    dest += width;
+    if (padding > 0) {
+      buf.fill(0, dest, dest + padding);
+      dest += padding;
+    }
+  }
+
+  return buf;
+}
+
+/**
+ * Converts a raw 8-bit grayscale pixel buffer into a Base64 Data URL
+ * (`data:image/bmp;base64,...`) suitable for `<img src="...">` in Electron
+ * or browser renderers.
+ *
+ * @param {Buffer} rawImage
+ * @param {number} width
+ * @param {number} height
+ * @param {number} [dpi=700]
+ * @returns {string} Base64 Data URL string.
+ * @example
+ * const dataUrl = uareu.toBmpDataUrl(scan.image, scan.width, scan.height);
+ * // In Electron renderer:
+ * // document.getElementById("fp-img").src = dataUrl;
+ */
+function toBmpDataUrl(rawImage, width, height, dpi = 700) {
+  const bmp = toBmp(rawImage, width, height, dpi);
+  return `data:image/bmp;base64,${bmp.toString("base64")}`;
+}
+
+// ---------------------------------------------------------------------------
 // High-level: scanOnce
 // ---------------------------------------------------------------------------
 
@@ -617,6 +725,10 @@ async function scanOnce(opts = {}) {
               dpi: cap.dpi,
               fmdType: opts.fmdType === undefined ? C.FMD_FORMAT.ISO_19794_2_2005 : opts.fmdType,
             });
+          }
+          if (opts.bmp) {
+            result.bmp = toBmp(cap.image, cap.width, cap.height, cap.dpi);
+            result.bmpDataUrl = toBmpDataUrl(cap.image, cap.width, cap.height, cap.dpi);
           }
           return result;
         }
@@ -890,6 +1002,10 @@ module.exports = {
   ledConfig,
   ledCtrl,
   setPad,
+
+  // image conversion
+  toBmp,
+  toBmpDataUrl,
 
   // high-level
   scanOnce,

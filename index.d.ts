@@ -89,6 +89,7 @@ export interface ScanOnceOptions {
   fmt?: number;
   proc?: number;
   dpi?: number;
+  bmp?: boolean;
   onQuality?: (qualityCode: number, message: string) => void;
 }
 
@@ -106,6 +107,8 @@ export interface ScanOnceResult {
   score?: number;
   image?: Buffer;
   fmd?: Buffer;
+  bmp?: Buffer;
+  bmpDataUrl?: string;
 }
 
 export interface ScannerOptions {
@@ -193,6 +196,9 @@ export function ledCtrl(handle: number, ledId?: number, cmd?: number): void;
 export function setPad(handle: number, enable: boolean): void;
 
 export function qualityText(q: number): string;
+
+export function toBmp(rawImage: Buffer, width: number, height: number, dpi?: number): Buffer;
+export function toBmpDataUrl(rawImage: Buffer, width: number, height: number, dpi?: number): string;
 
 export const C: {
   IMG_FMT: { PIXEL_BUFFER: number; ANSI381: number; ISOIEC19794: number };

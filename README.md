@@ -86,6 +86,7 @@ const r = await uareu.scanOnce({
   timeout: 15000,          // total budget (ms)
   attemptTimeout: 5000,    // per attempt (ms)
   extract: false,          // true → r.fmd (Buffer with the minutiae template)
+  bmp: false,              // true → r.bmp (Buffer) & r.bmpDataUrl (Data URL string)
   onQuality: (code, msg) => showHint(msg), // real-time UI feedback
 });
 ```
@@ -99,6 +100,8 @@ Result (`ScanOnceResult`):
 | `attempts` | number of capture attempts made |
 | `image` | `Buffer` of raw grayscale pixels (on success) |
 | `fmd` | `Buffer` minutiae template (on success, when `extract: true`) |
+| `bmp` | `Buffer` of BMP image file (on success, when `bmp: true`) |
+| `bmpDataUrl` | Base64 Data URL for `<img src="...">` (when `bmp: true`) |
 | `width, height, dpi, bpp, score` | image metadata (on success) |
 | `quality, qualityText` | last quality code + message (on failure) |
 
@@ -147,6 +150,8 @@ All functions are fully documented with JSDoc (`index.js` / `index.d.ts`).
 | `setPad(handle, bool)` | sync | Presentation Attack Detection (fake-finger check) |
 | `selectEngine(engine?)` | sync | `C.ENGINE.DPFJ` / `DPFJ7` (Minex-certified) |
 | `qualityText(code)` | sync | human-readable text for `C.QUALITY.*` codes |
+| `toBmp(image, w, h, dpi?)` | sync | converts raw pixels → Windows BMP image `Buffer` |
+| `toBmpDataUrl(image, w, h, dpi?)` | sync | converts raw pixels → Base64 Data URL (`data:image/bmp;base64,...`) |
 | `C` | constants | `IMG_FMT, IMG_PROC, QUALITY, FID_FORMAT, FMD_FORMAT, LED, ENGINE, PROBABILITY_ONE, MAX_FMD_SIZE` |
 
 ### Example: enrollment + 1:1 verification
@@ -247,6 +252,7 @@ test/smoke.js       sync API test
 test/async.js       scanOnce + Scanner events test
 example/index.js    scanOnce usage example
 example/enroll-and-verify.js  enrollment + 1:1 verification example
+example/capture-image.js      capture + BMP file and Data URL preview example
 ```
 
 Run tests: `npm test` (passes without hardware; some paths need a physical
