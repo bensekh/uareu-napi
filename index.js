@@ -140,7 +140,11 @@ const C = native.C;
 /**
  * Options for {@link scanOnce}.
  * @typedef {object} ScanOnceOptions
- * @property {string}  [deviceName]     Specific reader; default: first found.
+ * @property {string}  [deviceName]     Specific reader name; default: first found.
+ * @property {number}  [deviceIndex]    Specific reader by 0-based index.
+ * @property {string}  [deviceSerial]   Specific reader by serial number.
+ * @property {function(DeviceInfo[]): (DeviceInfo|string|number|Promise<DeviceInfo|string|number>)} [selectDevice]
+ *                                       Custom selector callback when multiple readers are connected.
  * @property {boolean} [exclusive=true] Open exclusively (locks other apps).
  * @property {number}  [timeout=15000]  Total budget in ms across attempts.
  * @property {number}  [attemptTimeout=5000] Per-attempt wait in ms.
@@ -183,7 +187,11 @@ const C = native.C;
 /**
  * Options for {@link openScanner}.
  * @typedef {object} ScannerOptions
- * @property {string}  [deviceName]      Specific reader; default: first found.
+ * @property {string}  [deviceName]      Specific reader name; default: first found.
+ * @property {number}  [deviceIndex]     Specific reader by 0-based index.
+ * @property {string}  [deviceSerial]    Specific reader by serial number.
+ * @property {function(DeviceInfo[]): (DeviceInfo|string|number|Promise<DeviceInfo|string|number>)} [selectDevice]
+ *                                        Custom selector callback when multiple readers are connected.
  * @property {boolean} [exclusive=true]  Exclusive access.
  * @property {number}  [attemptTimeout=5000] Per-capture wait in ms.
  * @property {number}  [fmt=C.IMG_FMT.PIXEL_BUFFER]
@@ -288,9 +296,7 @@ async function waitForDevice(opts = {}) {
   try {
     while (Date.now() < deadline) {
       const devs = native.listDevices();
-      const dev = opts.deviceName
-        ? devs.find((d) => d.name === opts.deviceName)
-        : devs[0];
+      const dev = await resolveDevice(devs, opts);
 
       if (dev) {
         return dev;
@@ -308,6 +314,119 @@ async function waitForDevice(opts = {}) {
   } finally {
     exit();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Device selection & resolution (multi-device support)
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolves a single {@link DeviceInfo} from a list of candidate devices
+ * based on options (`deviceName`, `deviceIndex`, `deviceSerial`, or a custom
+ * `selectDevice` callback).
+ *
+ * @param {DeviceInfo[]} devs
+ * @param {object} [opts]
+ * @returns {Promise<DeviceInfo|null>}
+ * @private
+ */
+async function resolveDevice(devs, opts = {}) {
+  if (!Array.isArray(devs) || devs.length === 0) return null;
+
+  // 1. Custom selector callback
+  if (typeof opts.selectDevice === "function") {
+    const chosen = await opts.selectDevice(devs);
+    if (!chosen) return null;
+    if (typeof chosen === "object" && chosen.name) return chosen;
+    if (typeof chosen === "number") return devs[chosen] || null;
+    if (typeof chosen === "string") {
+      return (
+        devs.find((d) => d.name === chosen || d.serial === chosen) || null
+      );
+    }
+  }
+
+  // 2. Exact index
+  if (typeof opts.deviceIndex === "number") {
+    return devs[opts.deviceIndex] || null;
+  }
+
+  // 3. Serial number (case-insensitive substring or exact match)
+  if (opts.deviceSerial) {
+    const s = String(opts.deviceSerial).toLowerCase();
+    return devs.find((d) => d.serial.toLowerCase().includes(s)) || null;
+  }
+
+  // 4. Device name
+  if (opts.deviceName) {
+    return devs.find((d) => d.name === opts.deviceName) || null;
+  }
+
+  // Default: first available reader
+  return devs[0];
+}
+
+/**
+ * Options for {@link selectDevice}.
+ * @typedef {object} SelectDeviceOptions
+ * @property {DeviceInfo[]} [devices] Pre-enumerated devices (or auto-enumerates).
+ * @property {boolean} [autoSelectFirst=false] If true and multiple found, selects first without prompt.
+ * @property {boolean} [nonInteractive=false] If true, disables terminal prompt.
+ */
+
+/**
+ * Interactive or programmatic helper to select a fingerprint reader when multiple
+ * readers are connected.
+ *
+ * - If 0 readers are connected: throws an Error (`reason: "no-device"`).
+ * - If 1 reader is connected: returns it immediately without prompting.
+ * - If >1 readers are connected: prompts the user interactively in the terminal
+ *   (or returns `devices[0]` if non-interactive).
+ *
+ * @param {SelectDeviceOptions} [opts]
+ * @returns {Promise<DeviceInfo>} The chosen reader.
+ * @throws {Error} If no reader is connected.
+ * @example
+ * const reader = await uareu.selectDevice();
+ * console.log("Selected reader:", reader.product, reader.serial);
+ */
+async function selectDevice(opts = {}) {
+  const devs = opts.devices || listDevices();
+  if (devs.length === 0) {
+    const err = new Error("no fingerprint reader connected");
+    err.reason = "no-device";
+    throw err;
+  }
+  if (devs.length === 1 || opts.autoSelectFirst) {
+    return devs[0];
+  }
+
+  if (process.stdin.isTTY && !opts.nonInteractive) {
+    const readline = require("readline");
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+
+    console.log(`\nMultiple fingerprint readers detected (${devs.length}):`);
+    for (let i = 0; i < devs.length; i++) {
+      console.log(`  [${i}] ${devs[i].product} (serial: ${devs[i].serial})`);
+    }
+
+    const answer = await new Promise((resolve) => {
+      rl.question(`Select reader [0-${devs.length - 1}] (default 0): `, (ans) => {
+        rl.close();
+        resolve(ans.trim());
+      });
+    });
+
+    const idx = parseInt(answer, 10);
+    if (!isNaN(idx) && idx >= 0 && idx < devs.length) {
+      return devs[idx];
+    }
+  }
+
+  return devs[0];
 }
 
 // ---------------------------------------------------------------------------
@@ -737,9 +856,7 @@ async function scanOnce(opts = {}) {
   init();
   try {
     const devs = native.listDevices();
-    const dev = opts.deviceName
-      ? devs.find((d) => d.name === opts.deviceName)
-      : devs[0];
+    const dev = await resolveDevice(devs, opts);
     if (!dev) return { success: false, reason: "no-device", attempts: 0 };
 
     const h = open(dev.name, opts.exclusive !== false);
@@ -887,9 +1004,7 @@ class Scanner extends EventEmitter {
   async open() {
     if (this._handle !== null) return this._device;
     const devs = listDevices();
-    const dev = this._opts.deviceName
-      ? devs.find((d) => d.name === this._opts.deviceName)
-      : devs[0];
+    const dev = await resolveDevice(devs, this._opts);
     if (!dev) {
       const err = new Error("no fingerprint reader connected");
       err.reason = "no-device";
@@ -1038,6 +1153,7 @@ module.exports = {
   selectEngine,
   listDevices,
   waitForDevice,
+  selectDevice,
 
   // reader
   open,

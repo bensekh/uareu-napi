@@ -81,7 +81,10 @@ minutiae template (FMD), then closes the reader. Fully non-blocking.
 
 ```js
 const r = await uareu.scanOnce({
-  deviceName: undefined,   // default: first reader found
+  deviceName: undefined,   // target by name (default: first found)
+  deviceIndex: undefined,  // or target by 0-based index (e.g. 0, 1)
+  deviceSerial: undefined, // or target by serial number substring
+  selectDevice: undefined, // or custom callback: (devices) => devices[0]
   exclusive: true,         // lock out other applications
   timeout: 15000,          // total budget (ms)
   attemptTimeout: 5000,    // per attempt (ms)
@@ -136,6 +139,7 @@ All functions are fully documented with JSDoc (`index.js` / `index.d.ts`).
 | `version()` | sync | capture & fingerjet library versions |
 | `listDevices()` | sync, auto-init | connected readers (`DeviceInfo[]`) |
 | `waitForDevice(opts?)` | Promise | waits until a reader is plugged in (`DeviceInfo`) |
+| `selectDevice(opts?)` | Promise | interactive or programmatic reader selection (`DeviceInfo`) |
 | `open(name, exclusive?)` | sync | → reader handle (number) |
 | `close(handle)` | sync | cancels any pending capture, then closes |
 | `cancel(handle)` | sync | cancels a running `captureAsync` |
@@ -277,6 +281,7 @@ example/enroll-and-verify.js  enrollment + 1:1 verification example
 example/capture-image.js      capture + BMP file and Data URL preview example
 example/identify-1-to-n.js    1:N biometric identification example
 example/kiosk-scanner.js      continuous event-driven kiosk scanner example
+example/select-device.js      multi-device selection and targeting example
 example/electron/             Electron IPC bridge & preview UI boilerplate
 ```
 

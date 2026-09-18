@@ -81,6 +81,11 @@ export type ScanFailReason = "no-device" | "timeout" | "bad-quality";
 
 export interface ScanOnceOptions {
   deviceName?: string;
+  deviceIndex?: number;
+  deviceSerial?: string;
+  selectDevice?: (
+    devices: DeviceInfo[]
+  ) => DeviceInfo | string | number | Promise<DeviceInfo | string | number>;
   exclusive?: boolean;
   timeout?: number;
   attemptTimeout?: number;
@@ -114,6 +119,11 @@ export interface ScanOnceResult {
 
 export interface ScannerOptions {
   deviceName?: string;
+  deviceIndex?: number;
+  deviceSerial?: string;
+  selectDevice?: (
+    devices: DeviceInfo[]
+  ) => DeviceInfo | string | number | Promise<DeviceInfo | string | number>;
   exclusive?: boolean;
   attemptTimeout?: number;
   fmt?: number;
@@ -160,11 +170,20 @@ export function version(): VersionInfo;
 export function selectEngine(engine?: number): void;
 export function listDevices(): DeviceInfo[];
 export function waitForDevice(options?: WaitForDeviceOptions): Promise<DeviceInfo>;
+export function selectDevice(options?: SelectDeviceOptions): Promise<DeviceInfo>;
 
 export interface WaitForDeviceOptions {
   deviceName?: string;
+  deviceIndex?: number;
+  deviceSerial?: string;
   timeout?: number;
   interval?: number;
+}
+
+export interface SelectDeviceOptions {
+  devices?: DeviceInfo[];
+  autoSelectFirst?: boolean;
+  nonInteractive?: boolean;
 }
 
 export function open(name: string, exclusive?: boolean): number;
