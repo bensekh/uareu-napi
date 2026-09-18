@@ -29,7 +29,8 @@
     "test": "node test/smoke.js && node test/async.js",
     "example": "node example/index.js",
     "example:enroll": "node example/enroll-and-verify.js",
-    "example:image": "node example/capture-image.js"
+    "example:image": "node example/capture-image.js",
+    "example:identify": "node example/identify-1-to-n.js"
   },
   "keywords": [
     "fingerprint",

@@ -186,6 +186,26 @@ const { score, falseMatchRate } = uareu.compare(
 const matched = falseMatchRate < 1 / 100000; // one-in-100,000 false-match rate
 ```
 
+### Example: 1:N identification (search database)
+
+```js
+// candidate templates loaded from database (e.g. ISO 19794-2:2005)
+const candidates = [aliceTemplate, bobTemplate, charlieTemplate];
+const T = uareu.C.FMD_FORMAT.ISO_19794_2_2005;
+
+// capture unknown probe fingerprint
+const probe = await uareu.scanOnce({ extract: true, fmdType: T });
+
+// search all candidates in memory in < 2ms
+const matches = uareu.identify(probe.fmd, T, candidates, T);
+if (matches.length > 0) {
+  const matchIdx = matches[0].index; // matched candidate index
+  console.log(`Identified user:`, users[matchIdx].name);
+} else {
+  console.log("Unrecognized fingerprint");
+}
+```
+
 ## Integration with Electron
 
 **Main process** — a one-liner in an IPC handler:
@@ -253,6 +273,7 @@ test/async.js       scanOnce + Scanner events test
 example/index.js    scanOnce usage example
 example/enroll-and-verify.js  enrollment + 1:1 verification example
 example/capture-image.js      capture + BMP file and Data URL preview example
+example/identify-1-to-n.js    1:N biometric identification example
 ```
 
 Run tests: `npm test` (passes without hardware; some paths need a physical
