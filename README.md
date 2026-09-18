@@ -87,6 +87,7 @@ const r = await uareu.scanOnce({
   attemptTimeout: 5000,    // per attempt (ms)
   extract: false,          // true → r.fmd (Buffer with the minutiae template)
   bmp: false,              // true → r.bmp (Buffer) & r.bmpDataUrl (Data URL string)
+  pad: false,              // true → enable hardware anti-spoofing (PAD)
   onQuality: (code, msg) => showHint(msg), // real-time UI feedback
 });
 ```
@@ -134,6 +135,7 @@ All functions are fully documented with JSDoc (`index.js` / `index.d.ts`).
 | `init()` / `exit()` | sync, ref-counted | SDK lifecycle; `open()`/`close()` call them automatically |
 | `version()` | sync | capture & fingerjet library versions |
 | `listDevices()` | sync, auto-init | connected readers (`DeviceInfo[]`) |
+| `waitForDevice(opts?)` | Promise | waits until a reader is plugged in (`DeviceInfo`) |
 | `open(name, exclusive?)` | sync | → reader handle (number) |
 | `close(handle)` | sync | cancels any pending capture, then closes |
 | `cancel(handle)` | sync | cancels a running `captureAsync` |
@@ -274,6 +276,8 @@ example/index.js    scanOnce usage example
 example/enroll-and-verify.js  enrollment + 1:1 verification example
 example/capture-image.js      capture + BMP file and Data URL preview example
 example/identify-1-to-n.js    1:N biometric identification example
+example/kiosk-scanner.js      continuous event-driven kiosk scanner example
+example/electron/             Electron IPC bridge & preview UI boilerplate
 ```
 
 Run tests: `npm test` (passes without hardware; some paths need a physical

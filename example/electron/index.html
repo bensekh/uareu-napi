@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>U.are.U Fingerprint Scanner</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: #0f172a; color: #f8fafc; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 32px; width: 100%; max-width: 480px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); text-align: center; }
+    h1 { font-size: 1.5rem; margin-bottom: 8px; color: #38bdf8; }
+    p.subtitle { font-size: 0.875rem; color: #94a3b8; margin-bottom: 24px; }
+    .preview-box { width: 220px; height: 260px; margin: 0 auto 24px; background: #0b1120; border: 2px dashed #475569; border-radius: 12px; display: flex; justify-content: center; align-items: center; overflow: hidden; position: relative; }
+    .preview-box img { width: 100%; height: 100%; object-fit: contain; }
+    .preview-box .placeholder { color: #64748b; font-size: 0.85rem; padding: 12px; }
+    .status-badge { display: inline-block; padding: 6px 14px; border-radius: 9999px; font-size: 0.85rem; font-weight: 500; margin-bottom: 24px; background: #334155; color: #cbd5e1; }
+    .status-badge.scanning { background: #0369a1; color: #e0f2fe; animation: pulse 1.5s infinite; }
+    .status-badge.success { background: #065f46; color: #a7f3d0; }
+    .status-badge.error { background: #991b1b; color: #fecaca; }
+    button { width: 100%; padding: 14px; background: #0284c7; color: white; border: none; border-radius: 10px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+    button:hover { background: #0369a1; }
+    button:disabled { background: #475569; cursor: not-allowed; opacity: 0.6; }
+    .meta { margin-top: 16px; font-size: 0.75rem; color: #64748b; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Fingerprint Verification</h1>
+    <p class="subtitle">U.are.U N-API Electron IPC Bridge Demo</p>
+
+    <div class="preview-box">
+      <img id="fpImg" src="" alt="Fingerprint Preview" style="display: none;" />
+      <div id="placeholder" class="placeholder">Fingerprint image will appear here after scan</div>
+    </div>
+
+    <div id="statusBadge" class="status-badge">Standby</div>
+
+    <button id="scanBtn">Scan Fingerprint</button>
+    <div id="metaInfo" class="meta"></div>
+  </div>
+
+  <script>
+    const scanBtn = document.getElementById("scanBtn");
+    const statusBadge = document.getElementById("statusBadge");
+    const fpImg = document.getElementById("fpImg");
+    const placeholder = document.getElementById("placeholder");
+    const metaInfo = document.getElementById("metaInfo");
+
+    // Listen to real-time quality hints from Main Process
+    window.fingerprint?.onHint((hint) => {
+      statusBadge.textContent = hint;
+      statusBadge.className = "status-badge scanning";
+    });
+
+    scanBtn.addEventListener("click", async () => {
+      scanBtn.disabled = true;
+      statusBadge.className = "status-badge scanning";
+      statusBadge.textContent = "Touch the fingerprint sensor...";
+      metaInfo.textContent = "";
+
+      try {
+        const result = await window.fingerprint.scan({ timeout: 15000 });
+
+        if (result.success) {
+          statusBadge.className = "status-badge success";
+          statusBadge.textContent = "Captured Successfully [✓]";
+
+          if (result.bmpDataUrl) {
+            fpImg.src = result.bmpDataUrl;
+            fpImg.style.display = "block";
+            placeholder.style.display = "none";
+          }
+
+          metaInfo.textContent = `${result.width}x${result.height} @${result.dpi}dpi | FMD Template extracted`;
+        } else {
+          statusBadge.className = "status-badge error";
+          statusBadge.textContent = `Failed: ${result.reason || result.qualityText || "Unknown"}`;
+        }
+      } catch (err) {
+        statusBadge.className = "status-badge error";
+        statusBadge.textContent = `Error: ${err.message}`;
+      } finally {
+        scanBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

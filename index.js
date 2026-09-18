@@ -149,6 +149,8 @@ const C = native.C;
  *                                       used when `extract` is true.
  * @property {boolean} [bmp=false]      Convert raw image to BMP Buffer (`bmp`)
  *                                       and Data URL (`bmpDataUrl`).
+ * @property {boolean} [pad=false]      Enable Presentation Attack Detection
+ *                                       (fake-finger / anti-spoof check).
  * @property {function(number,string):void} [onQuality] Called for every failed
  *                                       attempt with (qualityCode, message) —
  *                                       use to drive "please press your
@@ -250,6 +252,59 @@ function listDevices() {
   init();
   try {
     return native.listDevices();
+  } finally {
+    exit();
+  }
+}
+
+/**
+ * Options for {@link waitForDevice}.
+ * @typedef {object} WaitForDeviceOptions
+ * @property {string} [deviceName] Specific reader name to wait for; default: any reader.
+ * @property {number} [timeout=30000] Maximum wait time in milliseconds (0 = infinite).
+ * @property {number} [interval=500] Polling interval in milliseconds (min 100ms).
+ */
+
+/**
+ * Wait until a fingerprint reader is connected and enumerated by the SDK.
+ * Resolves with the {@link DeviceInfo} of the detected reader.
+ *
+ * Useful for kiosk startup, POS systems, or desktop apps where the USB
+ * reader might be plugged in after application launch.
+ *
+ * @param {WaitForDeviceOptions} [opts]
+ * @returns {Promise<DeviceInfo>} Resolves with the connected reader device info.
+ * @throws {Error} Rejects if `timeout` expires before a device is detected.
+ * @example
+ * const reader = await uareu.waitForDevice({ timeout: 15000 });
+ * console.log("Reader connected:", reader.product);
+ */
+async function waitForDevice(opts = {}) {
+  const timeout = opts.timeout === undefined ? 30000 : opts.timeout;
+  const interval = opts.interval === undefined ? 500 : Math.max(100, opts.interval);
+  const deadline = timeout > 0 ? Date.now() + timeout : Infinity;
+
+  init();
+  try {
+    while (Date.now() < deadline) {
+      const devs = native.listDevices();
+      const dev = opts.deviceName
+        ? devs.find((d) => d.name === opts.deviceName)
+        : devs[0];
+
+      if (dev) {
+        return dev;
+      }
+
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(interval, remaining)));
+    }
+
+    throw new Error(
+      `waitForDevice timed out after ${timeout}ms: no reader found` +
+        (opts.deviceName ? ` matching '${opts.deviceName}'` : "")
+    );
   } finally {
     exit();
   }
@@ -689,6 +744,14 @@ async function scanOnce(opts = {}) {
 
     const h = open(dev.name, opts.exclusive !== false);
     try {
+      if (opts.pad) {
+        try {
+          setPad(h, true);
+        } catch (_) {
+          /* some reader firmware or driver versions do not support hardware PAD */
+        }
+      }
+
       const deadline = Date.now() + timeout;
       let attempts = 0;
       let lastQuality = null;
@@ -974,6 +1037,7 @@ module.exports = {
   version,
   selectEngine,
   listDevices,
+  waitForDevice,
 
   // reader
   open,

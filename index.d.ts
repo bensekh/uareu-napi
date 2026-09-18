@@ -90,6 +90,7 @@ export interface ScanOnceOptions {
   proc?: number;
   dpi?: number;
   bmp?: boolean;
+  pad?: boolean;
   onQuality?: (qualityCode: number, message: string) => void;
 }
 
@@ -158,6 +159,13 @@ export function exit(): void;
 export function version(): VersionInfo;
 export function selectEngine(engine?: number): void;
 export function listDevices(): DeviceInfo[];
+export function waitForDevice(options?: WaitForDeviceOptions): Promise<DeviceInfo>;
+
+export interface WaitForDeviceOptions {
+  deviceName?: string;
+  timeout?: number;
+  interval?: number;
+}
 
 export function open(name: string, exclusive?: boolean): number;
 export function close(handle: number): void;
