@@ -12,6 +12,11 @@ if (!fs.existsSync(dest)) {
   console.error("build/Release not found. Run node-gyp rebuild first.");
   process.exit(1);
 }
+if (!fs.existsSync(SDK_LIB)) {
+  console.error(`[uareu-napi] U.are.U SDK directory not found at "${SDK_LIB}".`);
+  console.error(`Please install the U.are.U SDK or set the UAREU_SDK_LIB environment variable.`);
+  process.exit(1);
+}
 
 let copied = 0;
 for (const f of fs.readdirSync(SDK_LIB)) {
