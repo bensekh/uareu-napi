@@ -23,7 +23,8 @@
           "msvs_settings": {
             "VCCLCompilerTool": {
               "ExceptionHandling": 1,
-              "LanguageStandard": "stdcpp17"
+              "LanguageStandard": "stdcpp17",
+              "AdditionalOptions": [ "/std:c++17" ]
             }
           }
         }]
