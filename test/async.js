@@ -8,6 +8,15 @@ async function main() {
   const devs = u.listDevices();
   console.log("readers:", devs.length);
 
+  // --- cancellation: early-abort path (works headless, no reader needed) ---
+  // An already-aborted signal must return "canceled" immediately without
+  // ever touching the device.
+  const ac0 = new AbortController();
+  ac0.abort();
+  const c0 = await u.scanOnce({ timeout: 0, signal: ac0.signal });
+  console.log("scanOnce early-abort:", JSON.stringify(c0));
+  if (c0.success || c0.reason !== "canceled") throw new Error("expected canceled");
+
   if (devs.length === 0) {
     const r = await u.scanOnce({ timeout: 1000 });
     console.log("scanOnce no-device:", JSON.stringify(r));
@@ -35,6 +44,22 @@ async function main() {
     "scanOnce:",
     r.success ? `OK ${r.width}x${r.height} fmd=${r.fmd.length}B attempts=${r.attempts}` : `FAIL ${r.reason}`
   );
+
+  // --- cancellation: abort an infinite scan mid-flight, then re-open ---
+  console.log("scanOnce cancel test: keep your finger OFF, abort in 3s...");
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), 3000); // simulate the UI Cancel button
+  const rc = await u.scanOnce({ timeout: 0, signal: ac.signal });
+  clearTimeout(t);
+  console.log("scanOnce canceled:", JSON.stringify({ success: rc.success, reason: rc.reason, attempts: rc.attempts }));
+  // Either the finger arrived before the abort (success) or the abort won
+  // (reason === "canceled"); anything else is a bug.
+  if (!rc.success && rc.reason !== "canceled") throw new Error("expected canceled");
+
+  // A canceled scan must release the reader immediately: this follow-up open
+  // would throw the device-busy error (0x05ba001f) if the handle leaked.
+  const reopen = await u.scanOnce({ timeout: 1000 });
+  console.log("reopen after cancel:", reopen.success ? "captured" : `reason=${reopen.reason}`);
 
   // --- Scanner events with a real reader ---
   const scanner = u.openScanner({ extract: false });

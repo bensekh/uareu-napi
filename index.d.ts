@@ -77,7 +77,8 @@ export interface VersionInfo {
   fingerjet: { major: number; minor: number; maintenance: number };
 }
 
-export type ScanFailReason = "no-device" | "timeout" | "bad-quality";
+// "canceled" is returned when an in-progress scan is aborted via ScanOnceOptions.signal.
+export type ScanFailReason = "no-device" | "timeout" | "bad-quality" | "canceled";
 
 export interface ScanOnceOptions {
   deviceName?: string;
@@ -87,8 +88,17 @@ export interface ScanOnceOptions {
     devices: DeviceInfo[]
   ) => DeviceInfo | string | number | Promise<DeviceInfo | string | number>;
   exclusive?: boolean;
+  /**
+   * Total timeout in milliseconds.
+   * Use 0 or Infinity to wait indefinitely (infinite) until a finger is touched or it is canceled.
+   * Default: 15000 (15 seconds).
+   */
   timeout?: number;
   attemptTimeout?: number;
+  /**
+   * AbortSignal to instantly cancel an in-progress scan.
+   */
+  signal?: AbortSignal;
   extract?: boolean;
   fmdType?: number;
   fmt?: number;

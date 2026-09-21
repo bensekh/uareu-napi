@@ -67,7 +67,7 @@ const result = await uareu.scanOnce({ timeout: 15000 });
 if (result.success) {
   console.log("finger captured", result.width, "x", result.height);
 } else {
-  console.log("failed:", result.reason); // 'no-device' | 'timeout' | 'bad-quality'
+  console.log("failed:", result.reason); // 'no-device' | 'timeout' | 'bad-quality' | 'canceled'
 }
 ```
 
@@ -86,8 +86,9 @@ const r = await uareu.scanOnce({
   deviceSerial: undefined, // or target by serial number substring
   selectDevice: undefined, // or custom callback: (devices) => devices[0]
   exclusive: true,         // lock out other applications
-  timeout: 15000,          // total budget (ms)
+  timeout: 15000,          // total budget (ms); 0 or Infinity = wait forever
   attemptTimeout: 5000,    // per attempt (ms)
+  signal: undefined,       // AbortSignal to cancel an in-progress scan instantly
   extract: false,          // true → r.fmd (Buffer with the minutiae template)
   bmp: false,              // true → r.bmp (Buffer) & r.bmpDataUrl (Data URL string)
   pad: false,              // true → enable hardware anti-spoofing (PAD)
@@ -100,7 +101,7 @@ Result (`ScanOnceResult`):
 | Field | Description |
 |---|---|
 | `success` | `true` when a usable fingerprint was captured |
-| `reason` | `null` \| `'no-device'` \| `'timeout'` \| `'bad-quality'` |
+| `reason` | `null` \| `'no-device'` \| `'timeout'` \| `'bad-quality'` \| `'canceled'` |
 | `attempts` | number of capture attempts made |
 | `image` | `Buffer` of raw grayscale pixels (on success) |
 | `fmd` | `Buffer` minutiae template (on success, when `extract: true`) |
@@ -108,6 +109,22 @@ Result (`ScanOnceResult`):
 | `bmpDataUrl` | Base64 Data URL for `<img src="...">` (when `bmp: true`) |
 | `width, height, dpi, bpp, score` | image metadata (on success) |
 | `quality, qualityText` | last quality code + message (on failure) |
+
+Infinite wait + cancel button (`AbortSignal`):
+
+```js
+const ac = new AbortController();
+cancelButton.onclick = () => ac.abort(); // wakes the pending capture instantly
+
+const r = await uareu.scanOnce({ timeout: 0, signal: ac.signal }); // wait forever
+if (r.success) showFinger(r);
+else if (r.reason === "canceled") showHint("Scan dibatalkan"); // reader already released
+```
+
+`timeout: 0` / `Infinity` waits forever; always pair it with `signal` (a
+`console.warn` reminds you). Aborting calls `native.cancel()` under the hood,
+so the USB reader is released immediately — no device-busy (`0x05ba001f`) on
+the next scan. See `example/cancel-scan.js`.
 
 ### 2. `openScanner(options?) → Scanner` — event-driven
 
@@ -283,6 +300,7 @@ example/identify-1-to-n.js    1:N biometric identification example
 example/kiosk-scanner.js      continuous event-driven kiosk scanner example
 example/select-device.js      multi-device selection and targeting example
 example/led-feedback.js       hardware LED indicator and feedback control example
+example/cancel-scan.js        infinite scan + AbortSignal cancel-button example
 example/electron/             Electron IPC bridge & preview UI boilerplate
 ```
 

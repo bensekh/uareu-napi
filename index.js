@@ -147,6 +147,14 @@ const C = native.C;
  *                                       Custom selector callback when multiple readers are connected.
  * @property {boolean} [exclusive=true] Open exclusively (locks other apps).
  * @property {number}  [timeout=15000]  Total budget in ms across attempts.
+ *                                       Use `0` or `Infinity` to wait forever
+ *                                       (infinite) until a finger is found or
+ *                                       the scan is canceled via `signal`.
+ * @property {AbortSignal} [signal]     AbortSignal (from `AbortController`)
+ *                                       that cancels an in-progress scan
+ *                                       instantly. Strongly recommended with
+ *                                       an infinite `timeout` — without it
+ *                                       nothing can stop the wait.
  * @property {number}  [attemptTimeout=5000] Per-attempt wait in ms.
  * @property {boolean} [extract=false]  Also extract the minutiae template.
  * @property {number}  [fmdType=C.FMD_FORMAT.ISO_19794_2_2005] Template format
@@ -168,7 +176,8 @@ const C = native.C;
  * @property {?string} reason   `null` on success, else one of:
  *                              `'no-device'` (no reader connected),
  *                              `'timeout'` (no finger within budget),
- *                              `'bad-quality'` (finger repeatedly rejected).
+ *                              `'bad-quality'` (finger repeatedly rejected),
+ *                              `'canceled'` (opts.signal was aborted).
  * @property {string}  [device] Name of the reader used.
  * @property {number}  attempts Number of capture attempts made.
  * @property {number}  [quality]      Last quality code (on failure).
@@ -848,10 +857,33 @@ function toBmpDataUrl(rawImage, width, height, dpi = 700) {
  * const r = await ipcRenderer.invoke("fp:scan");
  * if (r.success) showDialog("Jari terdeteksi");
  * else showDialog(r.reason === "timeout" ? "Waktu habis" : r.qualityText);
+ *
+ * @example <caption>Cancel an infinite scan from a UI "Cancel" button</caption>
+ * const ac = new AbortController();
+ * cancelButton.onclick = () => ac.abort();          // wakes the pending capture
+ * const r = await uareu.scanOnce({ timeout: 0, signal: ac.signal });
+ * if (r.reason === "canceled") showDialog("Scan dibatalkan");
  */
 async function scanOnce(opts = {}) {
   const timeout = opts.timeout === undefined ? 15000 : opts.timeout;
   const attemptTimeout = opts.attemptTimeout === undefined ? 5000 : opts.attemptTimeout;
+  // timeout 0 or Infinity => no overall deadline: keep looping until a finger
+  // is captured or the scan is canceled through opts.signal.
+  const infinite = timeout === 0 || timeout === Infinity;
+
+  // Already canceled before we even start: return without touching the device.
+  if (opts.signal && opts.signal.aborted) {
+    return { success: false, reason: "canceled", attempts: 0 };
+  }
+
+  // Safety net: an infinite wait without an AbortSignal can never be stopped
+  // from JS, so warn the developer — but still proceed (warning only).
+  if (infinite && !opts.signal) {
+    console.warn(
+      "[uareu-napi] scanOnce: timeout=0/Infinity waits forever with no way to " +
+        "cancel; pass an AbortSignal via opts.signal so the scan can be canceled."
+    );
+  }
 
   init();
   try {
@@ -860,7 +892,23 @@ async function scanOnce(opts = {}) {
     if (!dev) return { success: false, reason: "no-device", attempts: 0 };
 
     const h = open(dev.name, opts.exclusive !== false);
+    // Set by the abort listener below; checked in the loop condition so a
+    // cancel that lands between attempts stops the loop immediately.
+    let canceled = false;
+    const onAbort = () => {
+      canceled = true;
+      // Wakes up the pending native.captureAsync with QUALITY.CANCELED so the
+      // await resolves right away instead of blocking until its own timeout.
+      native.cancel(h);
+    };
     try {
+      if (opts.signal) {
+        opts.signal.addEventListener("abort", onAbort, { once: true });
+        // The signal may have fired while we were resolving/opening the
+        // device (async selectDevice callback) — catch that race here.
+        if (opts.signal.aborted) canceled = true;
+      }
+
       if (opts.pad) {
         try {
           setPad(h, true);
@@ -869,11 +917,13 @@ async function scanOnce(opts = {}) {
         }
       }
 
-      const deadline = Date.now() + timeout;
+      // An Infinity deadline keeps `Date.now() < deadline` always true, so the
+      // loop condition itself needs no special infinite-mode branch.
+      const deadline = infinite ? Infinity : Date.now() + timeout;
       let attempts = 0;
       let lastQuality = null;
 
-      while (Date.now() < deadline) {
+      while (!canceled && Date.now() < deadline) {
         const per = Math.max(500, Math.min(attemptTimeout, deadline - Date.now()));
         const cap = await native.captureAsync(h, {
           fmt: opts.fmt,
@@ -883,7 +933,12 @@ async function scanOnce(opts = {}) {
         });
         attempts += 1;
 
-        if (cap.quality === C.QUALITY.CANCELED) continue;
+        if (cap.quality === C.QUALITY.CANCELED) {
+          // QUALITY.CANCELED means native.cancel() ran — i.e. our abort
+          // listener fired. Stop instead of retrying; otherwise keep looping.
+          if (canceled) break;
+          continue;
+        }
 
         if (cap.success) {
           const result = {
@@ -919,6 +974,19 @@ async function scanOnce(opts = {}) {
         }
       }
 
+      // Loop exited because the signal was aborted: report it distinctly from
+      // a plain timeout so the caller can show "dibatalkan", not "waktu habis".
+      if (canceled) {
+        return {
+          success: false,
+          reason: "canceled",
+          device: dev.name,
+          attempts,
+          quality: lastQuality,
+          qualityText: lastQuality === null ? null : qualityText(lastQuality),
+        };
+      }
+
       const reason =
         lastQuality !== null && (lastQuality & C.QUALITY.TIMED_OUT) === 0
           ? "bad-quality"
@@ -932,6 +1000,10 @@ async function scanOnce(opts = {}) {
         qualityText: lastQuality === null ? null : qualityText(lastQuality),
       };
     } finally {
+      // Always detach the listener — even on normal completion — so a
+      // long-lived AbortController does not accumulate stale listeners, then
+      // release the reader handle.
+      if (opts.signal) opts.signal.removeEventListener("abort", onAbort);
       close(h);
     }
   } finally {
