@@ -1,6 +1,6 @@
 {
   "name": "uareu-napi",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Node.js / Electron bridge for the DigitalPersona (HID) U.are.U fingerprint SDK: capture, feature extraction, 1:1/1:N matching and enrollment. Promise + event-driven APIs, N-API v8 (Node 16-26 & Electron 17+).",
   "main": "index.js",
   "types": "index.d.ts",
