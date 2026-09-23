@@ -209,6 +209,21 @@ const C = native.C;
  * @property {boolean} [extract=false]   Attach an FMD template to every
  *                                       `scan` event.
  * @property {number}  [fmdType=C.FMD_FORMAT.ISO_19794_2_2005]
+ * @property {boolean} [waitForDevice=false] {@link Scanner#open} waits for a
+ *                                       reader to be plugged in instead of
+ *                                       throwing `no-device` right away.
+ * @property {number}  [openTimeout=30000] Wait budget (ms) for
+ *                                       `waitForDevice`; 0 or Infinity waits
+ *                                       forever.
+ * @property {boolean} [autoReconnect=false] Survive a reader unplug while
+ *                                       scanning: emit `disconnect`, wait for
+ *                                       the reader to reappear, reopen it and
+ *                                       emit `reconnect`.
+ * @property {number}  [reconnectInterval=500] Poll interval (ms) while waiting
+ *                                       for the reader to come back.
+ * @property {number}  [reconnectTimeout=0] Reconnect budget (ms) before the
+ *                                       scanner gives up and emits `error`;
+ *                                       0 or Infinity waits forever.
  */
 
 // ---------------------------------------------------------------------------
@@ -1027,9 +1042,20 @@ async function scanOnce(opts = {}) {
  * @fires Scanner#quality `(qualityCode: number, message: string)` — an
  *                        attempt was rejected (finger too high, not a
  *                        finger, ...). The loop keeps running.
- * @fires Scanner#error   `(Error)` — unrecoverable SDK error; the loop
- *                        stopped.
+ * @fires Scanner#error   `(Error)` — unrecoverable SDK error, or the reader
+ *                        did not come back within `reconnectTimeout`; the
+ *                        loop stopped.
+ * @fires Scanner#disconnect `{ device: DeviceInfo, error: Error }` — the
+ *                        reader was unplugged while scanning
+ *                        (`autoReconnect` only); the scanner is now waiting
+ *                        for it to be plugged back in.
+ * @fires Scanner#reconnect `{ device: DeviceInfo }` — the reader reappeared
+ *                        and was reopened; scanning resumed.
  * @fires Scanner#close   The reader was closed via {@link Scanner#close}.
+ *
+ * With `autoReconnect: true` a transient handle failure on a still-present
+ * reader is recovered transparently (reopen without `disconnect`); the
+ * `disconnect` event only fires when the device truly left the system.
  *
  * @example
  * const scanner = uareu.openScanner();
@@ -1051,9 +1077,16 @@ class Scanner extends EventEmitter {
     this._handle = null;
     this._running = false;
     this._loop = null;
+    this._wakeWait = null;
+    this._lostErr = null;
   }
 
-  /** The reader this scanner is attached to, or `null`. @returns {DeviceInfo|null} */
+  /**
+   * The reader this scanner is attached to, or `null`. While waiting for a
+   * disconnected reader to come back (`autoReconnect`), this keeps reporting
+   * the last known device.
+   * @returns {DeviceInfo|null}
+   */
   get device() {
     return this._device;
   }
@@ -1069,14 +1102,29 @@ class Scanner extends EventEmitter {
   }
 
   /**
-   * Open the reader (first one, or `options.deviceName`). Emits `open`.
+   * Open the reader (first one, or `options.deviceName`). With
+   * `options.waitForDevice` it waits for a reader to be plugged in instead of
+   * failing immediately. Emits `open`.
    * @returns {Promise<DeviceInfo>} The device that was opened.
-   * @throws {Error} No matching reader connected, or device busy.
+   * @throws {Error} No matching reader connected (`reason: "no-device"`),
+   *                 `waitForDevice` budget expired (`reason: "timeout"`),
+   *                 or device busy.
    */
   async open() {
     if (this._handle !== null) return this._device;
-    const devs = listDevices();
-    const dev = await resolveDevice(devs, this._opts);
+    let dev = await resolveDevice(listDevices(), this._opts);
+    if (!dev && this._opts.waitForDevice) {
+      try {
+        dev = await waitForDevice({
+          ...this._opts,
+          timeout: this._opts.openTimeout === undefined ? 30000 : this._opts.openTimeout,
+          interval: this._opts.reconnectInterval,
+        });
+      } catch (err) {
+        err.reason = "timeout";
+        throw err;
+      }
+    }
     if (!dev) {
       const err = new Error("no fingerprint reader connected");
       err.reason = "no-device";
@@ -1090,11 +1138,15 @@ class Scanner extends EventEmitter {
 
   /**
    * Start the background capture loop. Idempotent. Each successful read
-   * emits `scan`; each rejected attempt emits `quality`.
+   * emits `scan`; each rejected attempt emits `quality`. With
+   * `autoReconnect` this can also be called while the reader is disconnected
+   * — the loop then waits for it to come back.
    * @returns {this}
    */
   start() {
-    if (this._handle === null) throw new Error("scanner not open — call open() first");
+    if (this._handle === null && !(this._opts.autoReconnect && this._device)) {
+      throw new Error("scanner not open — call open() first");
+    }
     if (this._running) return this;
     this._running = true;
     this._loop = this._runLoop();
@@ -1102,12 +1154,18 @@ class Scanner extends EventEmitter {
   }
 
   /**
-   * Stop the capture loop (cancels the pending capture, if any). The reader
-   * stays open; call {@link start} again to resume.
+   * Stop the capture loop (cancels the pending capture, if any, and wakes a
+   * pending reconnect wait). The reader stays open; call {@link start} again
+   * to resume.
    * @returns {this}
    */
   stop() {
     this._running = false;
+    if (this._wakeWait) {
+      const wake = this._wakeWait;
+      this._wakeWait = null;
+      wake();
+    }
     if (this._handle !== null) {
       try {
         native.cancel(this._handle);
@@ -1119,8 +1177,9 @@ class Scanner extends EventEmitter {
   }
 
   /**
-   * Stop and close the reader, releasing the SDK reference. Emits `close`.
-   * Safe to call multiple times.
+   * Stop and close the reader, releasing the SDK reference. Emits `close`
+   * (also when the reader had disconnected first and only the wait was
+   * active). Safe to call multiple times.
    * @returns {Promise<void>}
    */
   async close() {
@@ -1136,8 +1195,10 @@ class Scanner extends EventEmitter {
     if (this._handle !== null) {
       const h = this._handle;
       this._handle = null;
-      this._device = null;
       close(h);
+    }
+    if (this._device !== null) {
+      this._device = null;
       this.emit("close");
     }
   }
@@ -1154,13 +1215,48 @@ class Scanner extends EventEmitter {
     };
 
     while (this._running) {
+      // Reconnect phase: the reader vanished (or its handle went stale) —
+      // wait for it to reappear and reopen it before capturing again.
+      if (this._handle === null) {
+        const dev = await this._waitForReconnect();
+        if (!this._running) break;
+        if (!dev) {
+          const timeout = this._opts.reconnectTimeout;
+          const err = new Error(
+            "fingerprint reader did not reconnect" +
+              (timeout > 0 ? ` within ${timeout}ms` : "")
+          );
+          err.reason = "no-device";
+          if (this._lostErr) err.cause = this._lostErr;
+          this._lostErr = null;
+          this.emit("error", err);
+          this._running = false;
+          return;
+        }
+        this._device = dev;
+        this._lostErr = null;
+        this.emit("reconnect", { device: dev });
+        continue;
+      }
+
       let cap;
       try {
         cap = await native.captureAsync(this._handle, captureOpts);
       } catch (err) {
-        if (this._running) this.emit("error", err);
-        this._running = false;
-        return;
+        if (!this._running) break;
+        if (!this._opts.autoReconnect) {
+          this.emit("error", err);
+          this._running = false;
+          return;
+        }
+        // Reader unplugged (or handle went stale): drop it and let the loop
+        // head wait for the device to come back. `disconnect` only fires
+        // when the device truly left the system.
+        const gone = !this._devicePresent();
+        this._dropHandle();
+        this._lostErr = err;
+        if (gone) this.emit("disconnect", { device: this._device, error: err });
+        continue;
       }
       if (!this._running) break;
       if (cap.quality === C.QUALITY.CANCELED) continue;
@@ -1198,6 +1294,103 @@ class Scanner extends EventEmitter {
         this.emit("quality", cap.quality, qualityText(cap.quality));
       }
     }
+  }
+
+  /**
+   * Whether the reader this scanner was attached to is still enumerated.
+   * @returns {boolean}
+   * @private
+   */
+  _devicePresent() {
+    const want = this._device;
+    if (!want) return false;
+    try {
+      return listDevices().some(
+        (d) => d.name === want.name || (want.serial && d.serial === want.serial)
+      );
+    } catch (_) {
+      return false; // enumeration itself failing counts as "gone"
+    }
+  }
+
+  /**
+   * Invalidate the current handle without touching the (possibly dead)
+   * device; still releases the SDK reference.
+   * @private
+   */
+  _dropHandle() {
+    const h = this._handle;
+    this._handle = null;
+    if (h !== null) {
+      try {
+        close(h);
+      } catch (_) {
+        /* device already gone — nothing to release */
+      }
+    }
+  }
+
+  /**
+   * Poll until the reader is back and reopenable, preferring the exact
+   * physical reader (same serial) we were attached to. Sets `this._handle`
+   * on success.
+   * @returns {Promise<DeviceInfo|null>} `null` when canceled via stop/close
+   *          or when the reconnect budget ran out.
+   * @private
+   */
+  async _waitForReconnect() {
+    const interval =
+      this._opts.reconnectInterval === undefined
+        ? 500
+        : Math.max(100, this._opts.reconnectInterval);
+    const timeout =
+      this._opts.reconnectTimeout === undefined ? 0 : this._opts.reconnectTimeout;
+    const deadline = timeout > 0 ? Date.now() + timeout : Infinity;
+    const want = this._device;
+
+    while (this._running && Date.now() < deadline) {
+      let dev = null;
+      try {
+        const devs = listDevices();
+        // Prefer the very same physical reader over a generic re-selection.
+        dev =
+          (want &&
+            devs.find(
+              (d) => d.name === want.name || (want.serial && d.serial === want.serial)
+            )) ||
+          (await resolveDevice(devs, this._opts));
+      } catch (_) {
+        dev = null; // enumeration can transiently fail during USB removal
+      }
+      if (dev) {
+        try {
+          this._handle = open(dev.name, this._opts.exclusive !== false);
+          return dev;
+        } catch (_) {
+          /* reader still busy re-enumerating — keep polling until deadline */
+        }
+      }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await this._sleep(Math.min(interval, remaining));
+    }
+    return null;
+  }
+
+  /**
+   * Interruptible sleep — resolved early by {@link Scanner#stop}.
+   * @param {number} ms
+   * @returns {Promise<void>}
+   * @private
+   */
+  _sleep(ms) {
+    return new Promise((resolve) => {
+      const t = setTimeout(resolve, ms);
+      this._wakeWait = () => {
+        clearTimeout(t);
+        resolve();
+      };
+    });
   }
 }
 

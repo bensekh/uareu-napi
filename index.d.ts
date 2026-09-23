@@ -141,6 +141,25 @@ export interface ScannerOptions {
   dpi?: number;
   extract?: boolean;
   fmdType?: number;
+  /**
+   * Scanner.open() waits for a reader to be plugged in instead of throwing
+   * `no-device` right away.
+   */
+  waitForDevice?: boolean;
+  /** Wait budget (ms) for `waitForDevice`; 0 or Infinity waits forever. Default: 30000. */
+  openTimeout?: number;
+  /**
+   * Survive a reader unplug while scanning: emit `disconnect`, wait for the
+   * reader to reappear, reopen it and emit `reconnect`.
+   */
+  autoReconnect?: boolean;
+  /** Poll interval (ms) while waiting for the reader to come back. Default: 500. */
+  reconnectInterval?: number;
+  /**
+   * Reconnect budget (ms) before the scanner gives up and emits `error`;
+   * 0 or Infinity waits forever. Default: 0.
+   */
+  reconnectTimeout?: number;
 }
 
 export interface ScanEvent {
@@ -153,6 +172,11 @@ export interface ScanEvent {
   quality: number;
   image: Buffer;
   fmd: Buffer | null;
+}
+
+export interface DisconnectEvent {
+  device: DeviceInfo | null;
+  error: Error;
 }
 
 export declare class Scanner extends EventEmitter {
@@ -168,6 +192,8 @@ export declare class Scanner extends EventEmitter {
   on(event: "scan", listener: (payload: ScanEvent) => void): this;
   on(event: "quality", listener: (qualityCode: number, message: string) => void): this;
   on(event: "error", listener: (err: Error) => void): this;
+  on(event: "disconnect", listener: (payload: DisconnectEvent) => void): this;
+  on(event: "reconnect", listener: (payload: { device: DeviceInfo }) => void): this;
   on(event: "close", listener: () => void): this;
 }
 

@@ -132,7 +132,7 @@ Keeps the reader open and loops captures in the background — the fingerprint
 equivalent of `nfc-pcsc`.
 
 Events: `open` `{device}` · `scan` `{image, fmd, ...}` · `quality` `(code, msg)` ·
-`error` `(Error)` · `close`.
+`error` `(Error)` · `disconnect` `{device, error}` · `reconnect` `{device}` · `close`.
 
 ```js
 const scanner = uareu.openScanner({ extract: false });
@@ -145,6 +145,29 @@ scanner.start();
 scanner.stop();        // pause; reader stays open, call start() to resume
 await scanner.close();
 ```
+
+#### Hot-plug resilience (24/7 kiosks)
+
+USB readers get unplugged. With `autoReconnect` the `Scanner` survives it:
+the loop pauses, emits `disconnect`, polls until the reader (same serial
+preferred) is back, reopens it and emits `reconnect` — no restart needed.
+`waitForDevice` does the same at startup, when no reader is plugged in yet.
+
+```js
+const scanner = uareu.openScanner({
+  waitForDevice: true,    // start even if no reader is connected yet
+  openTimeout: 0,         // wait forever for the first connection
+  autoReconnect: true,    // survive unplug/replug while scanning
+  reconnectInterval: 500, // poll ms while waiting for the reader
+  reconnectTimeout: 0,    // never give up (or set a budget in ms)
+});
+scanner.on("disconnect", ({ device }) => showHint(`Reader ${device.product} unplugged`));
+scanner.on("reconnect",  ({ device }) => showHint(`Reader ${device.product} back online`));
+await scanner.open();
+scanner.start();
+```
+
+See `example/hotplug-scanner.js`.
 
 ### 3. Low-level API
 
@@ -298,6 +321,7 @@ example/enroll-and-verify.js  enrollment + 1:1 verification example
 example/capture-image.js      capture + BMP file and Data URL preview example
 example/identify-1-to-n.js    1:N biometric identification example
 example/kiosk-scanner.js      continuous event-driven kiosk scanner example
+example/hotplug-scanner.js    auto-reconnect scanner that survives USB unplug/replug
 example/select-device.js      multi-device selection and targeting example
 example/led-feedback.js       hardware LED indicator and feedback control example
 example/cancel-scan.js        infinite scan + AbortSignal cancel-button example

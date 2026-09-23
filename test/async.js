@@ -28,7 +28,32 @@ async function main() {
       throw new Error("expected open() to fail without a reader");
     } catch (e) {
       console.log("scanner.open() no-device OK:", e.reason || e.message);
+      if (e.reason !== "no-device") throw new Error("expected reason no-device");
     }
+
+    // waitForDevice: open() must wait and then reject with reason "timeout"
+    const waiting = u.openScanner({ waitForDevice: true, openTimeout: 300 });
+    try {
+      await waiting.open();
+      throw new Error("expected waitForDevice open() to time out");
+    } catch (e) {
+      console.log("scanner.open() waitForDevice timeout OK:", e.reason || e.message);
+      if (e.reason !== "timeout") throw new Error("expected reason timeout");
+    }
+
+    // autoReconnect must not bypass the "open() first" requirement
+    const ar = u.openScanner({ autoReconnect: true });
+    try {
+      ar.start();
+      throw new Error("expected start() to fail before open()");
+    } catch (e) {
+      console.log("autoReconnect start() guard OK:", e.message);
+    }
+
+    // close() on a never-opened scanner: resolves, no events, no throw
+    await ar.close();
+    console.log("close() on unopened scanner OK");
+
     console.log("PASS (no reader connected)");
     return;
   }
