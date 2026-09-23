@@ -11,20 +11,19 @@ In Electron, biometric hardware interactions **must run in the Main process** an
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                       RENDERER UI                           │
-│  (Angular / React / Vue / Vanilla HTML + JS)               │
+│  (Angular / React / Vue / Vanilla HTML + JS)                │
 │                                                             │
 │  • Clicks "Scan Fingerprint" button                         │
 │  • Receives live hints ("Press harder", "Clean sensor")     │
 │  • Displays captured fingerprint preview: <img src="..." /> │
-└───────────────────────┬─────────────────▲───────────────────┘
-                        │ invoke          │ send (hints)
-                        ▼                 │
-┌─────────────────────────────────────────────────────────────┐
+└─────────────────┬───────────────────────▲───────────────────┘
+                  │ invoke                │ send (hints)
+┌─────────────────▼───────────────────────┴───────────────────┐
 │                      PRELOAD SCRIPT                         │
 │  (contextBridge.exposeInMainWorld)                          │
-└───────────────────────┬─────────────────▲───────────────────┘
-                        │                 │
-┌───────────────────────▼─────────────────┴───────────────────┐
+└─────────────────┬───────────────────────▲───────────────────┘
+                  │                       │
+┌─────────────────▼───────────────────────┴───────────────────┐
 │                       MAIN PROCESS                          │
 │                                                             │
 │  const uareu = require("uareu-napi");                       │
